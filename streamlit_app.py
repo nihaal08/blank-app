@@ -20,17 +20,24 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
+from googletrans import Translator
+from collections import Counter
 
-# Download necessary NLTK resources
+# NLTK resource downloads
 nltk.download('punkt')
 nltk.download('wordnet')
 nltk.download('stopwords')
 
-# Initialize stopwords
+# Initialize resources
 STOPWORDS = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
+translator = Translator()
 
-st.title("SENTIMENT ANALYSIS DASHBOARD")
-st.markdown("-----------Analyze product reviews to gain insights!----------")
+# Streamlit UI Title
+st.markdown("<h1 style='text-align: center;'>SENTIMENT ANALYSIS DASHBOARD</h1>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center;'>-----------ANALYZE PRODUCT REVIEWS TO GAIN INSIGHTS!----------</h2>", unsafe_allow_html=True)
+
+# Input method selection
 INPUT_METHOD_OPTIONS = (
     "Link",
     "Dataset",
@@ -41,6 +48,7 @@ INPUT_METHOD_OPTIONS = (
 )
 option = st.selectbox("Select Input Method", INPUT_METHOD_OPTIONS)
 
+# Database initialization
 def initialize_database():
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -58,39 +66,32 @@ def initialize_database():
 
 initialize_database()
 
-def insert_review(name, rating, description, sentiment):
+# Database operations
+def execute_db_query(query, params=None, fetch=False):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
-    cursor.execute('''
+    cursor.execute(query, params or ())
+    conn.commit()
+    result = cursor.fetchall() if fetch else None
+    conn.close()
+    return result
+
+def insert_review(name, rating, description, sentiment):
+    execute_db_query('''
         INSERT INTO reviews (name, rating, description, sentiment) 
         VALUES (?, ?, ?, ?)
     ''', (name, rating, description, sentiment))
-    conn.commit()
-    conn.close()
 
 def fetch_all_reviews():
-    conn = sqlite3.connect('sentiment_analysis.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM reviews')
-    data = cursor.fetchall()
-    conn.close()
-    return data
+    return execute_db_query('SELECT * FROM reviews', fetch=True)
 
 def fetch_reviews_by_name(name):
-    conn = sqlite3.connect('sentiment_analysis.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM reviews WHERE name LIKE ?', (f'%{name}%',))
-    data = cursor.fetchall()
-    conn.close()
-    return data
+    return execute_db_query('SELECT * FROM reviews WHERE name LIKE ?', (f'%{name}%',), fetch=True)
 
 def clear_database():
-    conn = sqlite3.connect('sentiment_analysis.db')
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM reviews')
-    conn.commit()
-    conn.close()
+    execute_db_query('DELETE FROM reviews')
 
+# Web scraping and data processing
 def get_request_headers():
     return {
         'authority': 'www.amazon.com',
@@ -101,24 +102,37 @@ def get_request_headers():
 def scrape_reviews(url, pages):
     reviews = []
     for page_number in range(1, pages + 1):
-        response = requests.get(url, headers=get_request_headers())
-        if response.status_code == 200:
+        try:
+            response = requests.get(url, headers=get_request_headers())
+            response.raise_for_status()  # Raise an error for bad responses
             soup = BeautifulSoup(response.text, 'lxml')
             boxes = soup.select('div[data-hook="review"]')
             for box in boxes:
+                name = (
+                    box.select_one('[class="a-profile-name"]').text 
+                    if box.select_one('[class="a-profile-name"]') 
+                    else 'N/A'
+                )
+                rating = (
+                    box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] 
+                    if box.select_one('[data-hook="review-star-rating"]') 
+                    else 'N/A'
+                )
+                description = (
+                    box.select_one('[data-hook="review-body"]').text.strip() 
+                    if box.select_one('[data-hook="review-body"]')
+                    else 'N/A'
+                )
                 reviews.append({
-                    'Name': box.select_one('[class="a-profile-name"]').text if box.select_one('[class="a-profile-name"]') else 'N/A',
-                    'Rating': box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] if box.select_one('[data-hook="review-star-rating"]') else 'N/A',
-                    'Title': box.select_one('[data-hook="review-title"]').text if box.select_one('[data-hook="review-title"]') else 'N/A',
-                    'Description': box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
+                    'Name': name,
+                    'Rating': rating,
+                    'Description': description
                 })
-        else:
-            st.write(f"**Error:** Page {page_number} failed: {response.status_code}")
+        except requests.RequestException as e:
+            st.error(f"Error fetching page {page_number}: {e}")
             break
-    return reviews
 
-STOPWORDS = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
+    return reviews
 
 def preprocess_text(text):
     text = emoji.demojize(text)
@@ -137,13 +151,22 @@ def analyze_sentiment(text):
     else:
         return 'Neutral'
 
+def translate_text(text):
+    try:
+        translated = translator.translate(text, dest='en')
+        return translated.text
+    except Exception as e:
+        st.error(f"Translation error: {e}")
+        return text  # Return original text if translation fails
+
 def train_models(data):
     X = data['Processed_Description']
     y = data['Sentiment'].apply(lambda x: 1 if x == 'Positive' else 0)
-
+    
     tfidf_vectorizer = TfidfVectorizer()
     X_tfidf = tfidf_vectorizer.fit_transform(X)
-
+    
+    # Avoid data leakage
     X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
 
     models = {
@@ -167,8 +190,7 @@ def train_models(data):
         metrics.append((model_name, accuracy, precision, recall, f1))
 
     df_metrics = pd.DataFrame(metrics, columns=['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score'])
-
-    st.write("### Model Performance")
+    st.markdown("<h2 style='text-align: center;'>MODEL PERFORMANCE</h2>", unsafe_allow_html=True)
     st.write(df_metrics)
 
     fig, ax = plt.subplots()
@@ -179,101 +201,126 @@ def train_models(data):
     return models
 
 def generate_insights(data):
-    positive_reviews = data[data['Sentiment'] == 'Positive']
-    negative_reviews = data[data['Sentiment'] == 'Negative']
+    total_reviews = len(data)
+    sentiment_counts = data['Sentiment'].value_counts()
+    positive_count = sentiment_counts.get('Positive', 0)
+    negative_count = sentiment_counts.get('Negative', 0)
+    neutral_count = sentiment_counts.get('Neutral', 0)
 
-    insights = []
+    # Identify commonly used words
+    all_words = ' '.join(data['Processed_Description'])
+    word_counts = Counter(all_words.split())
+    common_words = word_counts.most_common(10)
 
-    if len(positive_reviews) > 0:
-        insights.append(f"{len(positive_reviews)} positive reviews found.")
-
-    if len(negative_reviews) > 0:
-        insights.append(f"{len(negative_reviews)} negative reviews found.")
-
-    if not insights:
-        insights.append("No insights available.")
+    insights = {
+        "total_reviews": total_reviews,
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+        "neutral_count": neutral_count,
+        "common_words": common_words
+    }
 
     return insights
 
 # Processing User Inputs
 if option == "Link":
-    st.header("Scrape Reviews from Amazon")
+    st.markdown("<h2 style='text-align: center;'>SCRAPE REVIEWS FROM AMAZON</h2>", unsafe_allow_html=True)
     url_input = st.text_input("Enter Amazon Review URL:")
-    pages_input = st.number_input("Pages to Scrape:", 1, 50, 1) 
+    pages_input = st.number_input("Pages to Scrape:", 1, 50, 1)
 
     if st.button("Scrape Reviews"):
         if url_input:
             scraped_reviews = scrape_reviews(url_input, pages_input)
-            df_reviews = pd.DataFrame(scraped_reviews)
-            st.write("### Scraped Reviews")
-            st.write(df_reviews)
+            if scraped_reviews:
+                df_reviews = pd.DataFrame(scraped_reviews)
+                st.markdown("<h3 style='text-align: center;'>SCRAPED REVIEWS</h3>", unsafe_allow_html=True)
+                st.write(df_reviews)
 
-            df_reviews['Processed_Description'] = df_reviews['Description'].apply(preprocess_text)
-            df_reviews['Sentiment'] = df_reviews['Processed_Description'].apply(analyze_sentiment)
+                # Translate and process for sentiment analysis
+                df_reviews['Translated_Description'] = df_reviews['Description'].apply(translate_text)
+                df_reviews['Processed_Description'] = df_reviews['Translated_Description'].apply(preprocess_text)
+                df_reviews['Sentiment'] = df_reviews['Processed_Description'].apply(analyze_sentiment)
 
-            for _, row in df_reviews.iterrows():
-                insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
-            
-            st.write("### Sentiment Distribution")
-            fig, ax = plt.subplots()
-            sns.countplot(x='Sentiment', data=df_reviews, palette='Reds_r')
-            plt.title('Sentiment Count')
-            st.pyplot(fig)
+                for _, row in df_reviews.iterrows():
+                    insert_review(row['Name'], row['Rating'], row['Translated_Description'], row['Sentiment'])
 
-            insights = generate_insights(df_reviews)
-            st.write("### Insights")
-            for insight in insights:
-                st.write(insight)
+                # Display insights after processing
+                insights = generate_insights(df_reviews)
+                st.markdown("<h3 style='text-align: center;'>INSIGHTS</h3>", unsafe_allow_html=True)
+                st.write(f"**Total Reviews:** {insights['total_reviews']}")
+                st.write(f"**Positive Reviews:** {insights['positive_count']}")
+                st.write(f"**Negative Reviews:** {insights['negative_count']}")
+                st.write(f"**Neutral Reviews:** {insights['neutral_count']}")
+                st.write("**Most Common Words:**")
+                st.write(insights['common_words'])
 
-            st.write("### Detailed Data")
-            st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Description']])
+                st.markdown("<h3 style='text-align: center;'>DETAILED DATA</h3>", unsafe_allow_html=True)
+                st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Translated_Description']])
+            else:
+                st.write("**No reviews were found.**")
         else:
             st.write("**Please provide a valid URL.**")
 
 elif option == "Dataset":
-    st.header("Upload Dataset")
+    st.markdown("<h2 style='text-align: center;'>UPLOAD DATASET</h2>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-    
+
     if uploaded_file is not None:
-        data = pd.read_csv(uploaded_file)
-        st.write("### Uploaded Data")
-        st.write(data)
+        try:
+            data = pd.read_csv(uploaded_file)
+            st.markdown("<h3 style='text-align: center;'>UPLOADED DATA</h3>", unsafe_allow_html=True)
+            st.write(data)
 
-        data['Processed_Description'] = data['Description'].apply(preprocess_text)
-        data['Sentiment'] = data['Processed_Description'].apply(analyze_sentiment)
+            # Translate and process for sentiment analysis
+            data['Translated_Description'] = data['Description'].apply(translate_text)
+            data['Processed_Description'] = data['Translated_Description'].apply(preprocess_text)
+            data['Sentiment'] = data['Processed_Description'].apply(analyze_sentiment)
 
-        for _, row in data.iterrows():
-            insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
+            for _, row in data.iterrows():
+                insert_review(row['Name'], row['Rating'], row['Translated_Description'], row['Sentiment'])
 
-        st.write("### Sentiment Distribution")
-        fig, ax = plt.subplots()
-        sns.countplot(x='Sentiment', data=data, palette='Reds_r')
-        plt.title('Sentiment Count')
-        st.pyplot(fig)
+            st.markdown("<h3 style='text-align: center;'>SENTIMENT DISTRIBUTION</h3>", unsafe_allow_html=True)
+            fig, ax = plt.subplots()
+            sns.countplot(x='Sentiment', data=data, palette='Reds_r')
+            plt.title('Sentiment Count')
+            st.pyplot(fig)
 
-        insights = generate_insights(data)
-        st.write("### Insights")
-        for insight in insights:
-            st.write(insight)
+            st.markdown("<h3 style='text-align: center;'>DETAILED DATA</h3>", unsafe_allow_html=True)
+            st.write(data[['Name', 'Rating', 'Sentiment', 'Translated_Description']])
 
-        st.write("### Train Models")
-        train_models(data)
+            # Generate insights after review processing
+            insights = generate_insights(data)
+            st.markdown("<h3 style='text-align: center;'>INSIGHTS</h3>", unsafe_allow_html=True)
+            st.write(f"**Total Reviews:** {insights['total_reviews']}")
+            st.write(f"**Positive Reviews:** {insights['positive_count']}")
+            st.write(f"**Negative Reviews:** {insights['negative_count']}")
+            st.write(f"**Neutral Reviews:** {insights['neutral_count']}")
+            st.write("**Most Common Words:**")
+            st.write(insights['common_words'])
+
+            st.markdown("<h3 style='text-align: center;'>TRAIN MODELS</h3>", unsafe_allow_html=True)
+            train_models(data)
+
+        except Exception as e:
+            st.error(f"Error processing file: {e}")
 
 elif option == "Text":
-    st.header("Analyze Custom Text")
+    st.markdown("<h2 style='text-align: center;'>ANALYZE CUSTOM TEXT</h2>", unsafe_allow_html=True)
     user_input_text = st.text_area("Enter text:")
 
     if st.button("Analyze Text"):
-        processed_text = preprocess_text(user_input_text)
+        translated_text = translate_text(user_input_text)
+        processed_text = preprocess_text(translated_text)
         sentiment_result = analyze_sentiment(processed_text)
         blob = TextBlob(processed_text)
         polarity_score = blob.sentiment.polarity
-        
+
+        st.write(f"**Translated Text:** {translated_text}")
         st.write(f"**Sentiment:** {sentiment_result}")
         st.write(f"**Polarity Score:** {polarity_score:.2f}")
-        
+
 elif option == "Retrieve Old Reviews":
-    st.header("Search Old Reviews")
+    st.markdown("<h2 style='text-align: center;'>SEARCH OLD REVIEWS</h2>", unsafe_allow_html=True)
     search_name = st.text_input("Enter Name to Search:")
 
     if st.button("Fetch Reviews"):
@@ -281,7 +328,7 @@ elif option == "Retrieve Old Reviews":
             reviews = fetch_reviews_by_name(search_name)
             if reviews:
                 df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-                st.write("### Retrieved Reviews")
+                st.markdown("<h3 style='text-align: center;'>RETRIEVED REVIEWS</h3>", unsafe_allow_html=True)
                 st.write(df_reviews)
             else:
                 st.write("**No reviews found.**")
@@ -289,18 +336,18 @@ elif option == "Retrieve Old Reviews":
             st.write("**Please enter a name.**")
 
 elif option == "Clear Database":
-    st.header("Clear All Reviews")
+    st.markdown("<h2 style='text-align: center;'>CLEAR ALL REVIEWS</h2>", unsafe_allow_html=True)
     if st.button("Confirm Clear"):
         clear_database()
         st.success("**All reviews have been cleared.**")
 
 elif option == "Show All Saved Reviews":
-    st.header("View All Saved Reviews")
+    st.markdown("<h2 style='text-align: center;'>VIEW ALL SAVED REVIEWS</h2>", unsafe_allow_html=True)
     if st.button("Show Reviews"):
         reviews = fetch_all_reviews()
         if reviews:
             df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-            st.write("### All Reviews")
+            st.markdown("<h3 style='text-align: center;'>ALL REVIEWS</h3>", unsafe_allow_html=True)
             st.write(df_reviews)
         else:
             st.write("**No reviews found.**")
