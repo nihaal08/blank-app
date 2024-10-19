@@ -20,11 +20,29 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
+import nltk
 
-# Download necessary NLTK resources
-nltk.download('punkt')
-nltk.download('wordnet')
-nltk.download('stopwords')
+# Function to download necessary NLTK resources
+def download_nltk_resources():
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+
+    try:
+        nltk.data.find('corpora/wordnet')
+    except LookupError:
+        nltk.download('wordnet', quiet=True)
+
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+
+# Call the function to ensure resources are downloaded
+download_nltk_resources()
+
+
 
 # Function to initialize the database
 def initialize_database():
