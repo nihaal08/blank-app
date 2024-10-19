@@ -9,4 +9,3 @@ textblob
 scikit-learn
 matplotlib
 seaborn
-sqlite3  
