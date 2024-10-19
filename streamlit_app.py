@@ -20,9 +20,13 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
+
+# Download necessary NLTK resources
+nltk.download('punkt')
+nltk.download('wordnet')
 nltk.download('stopwords')
-from nltk.corpus import punkt_tab
-from nltk.corpus import stopwords
+
+# Initialize stopwords
 STOPWORDS = set(stopwords.words('english'))
 
 st.title("SENTIMENT ANALYSIS DASHBOARD")
