@@ -19,6 +19,10 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+STOPWORDS = set(stopwords.words('english'))
+
 st.title("SENTIMENT ANALYSIS DASHBOARD")
 st.markdown("-----------Analyze product reviews to gain insights!----------")
 INPUT_METHOD_OPTIONS = (
