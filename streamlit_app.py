@@ -20,7 +20,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
-import nltk
 
 # Function to download necessary NLTK resources
 def download_nltk_resources():
@@ -42,7 +41,9 @@ def download_nltk_resources():
 # Call the function to ensure resources are downloaded
 download_nltk_resources()
 
-
+# Initialize NLTK tools
+STOPWORDS = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
 
 # Function to initialize the database
 def initialize_database():
@@ -129,10 +130,6 @@ def scrape_reviews(url, pages):
             break
     return reviews
 
-# Initialize NLTK tools
-STOPWORDS = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-
 # Function to preprocess text
 def preprocess_text(text):
     text = emoji.demojize(text)
@@ -158,11 +155,11 @@ def train_models(data):
     X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
 
     models = {
-        'Logistic Regression': LogisticRegression(),
-        'Random Forest': RandomForestClassifier(),
+        'LOGISTIC REGRESSION': LogisticRegression(),
+        'RANDOM FOREST': RandomForestClassifier(),
         'SVM': SVC(),
         'KNN': KNeighborsClassifier(),
-        'Naive Bayes': MultinomialNB()
+        'NAIVE BAYES': MultinomialNB()
     }
 
     metrics = []
@@ -177,23 +174,23 @@ def train_models(data):
 
         metrics.append((model_name, accuracy, precision, recall, f1))
 
-    df_metrics = pd.DataFrame(metrics, columns=['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score'])
+    df_metrics = pd.DataFrame(metrics, columns=['MODEL', 'ACCURACY', 'PRECISION', 'RECALL', 'F1 SCORE'])
 
     st.write("### MODEL PERFORMANCE", unsafe_allow_html=True)
     st.write(df_metrics)
 
     fig, ax = plt.subplots()
-    sns.barplot(x='Accuracy', y='Model', data=df_metrics, ax=ax, palette="Reds_r")
-    plt.title('Model Accuracy Comparison')
+    sns.barplot(x='ACCURACY', y='MODEL', data=df_metrics, ax=ax, palette="Reds_r")
+    plt.title('MODEL ACCURACY COMPARISON')
     st.pyplot(fig)
 
 # Function to generate insights from the data
 def generate_insights(data):
     insights = {
-        "Total Reviews": len(data),
-        "Positive Reviews": len(data[data['Sentiment'] == 'Positive']),
-        "Negative Reviews": len(data[data['Sentiment'] == 'Negative']),
-        "Neutral Reviews": len(data[data['Sentiment'] == 'Neutral']),
+        "TOTAL REVIEWS": len(data),
+        "POSITIVE REVIEWS": len(data[data['Sentiment'] == 'Positive']),
+        "NEGATIVE REVIEWS": len(data[data['Sentiment'] == 'Negative']),
+        "NEUTRAL REVIEWS": len(data[data['Sentiment'] == 'Neutral']),
     }
     return insights
 
@@ -201,12 +198,12 @@ def generate_insights(data):
 st.title("SENTIMENT ANALYSIS DASHBOARD")
 st.markdown("<h2 style='text-align: center;'>ANALYZE PRODUCT REVIEWS TO GAIN INSIGHTS</h2>", unsafe_allow_html=True)
 INPUT_METHOD_OPTIONS = (
-    "Link",
-    "Dataset",
-    "Text",
-    "Retrieve Old Reviews",
-    "Show All Saved Reviews",
-    "Clear Database"
+    "LINK",
+    "DATASET",
+    "TEXT",
+    "RETRIEVE OLD REVIEWS",
+    "SHOW ALL SAVED REVIEWS",
+    "CLEAR DATABASE"
 )
 option = st.selectbox("SELECT INPUT METHOD", INPUT_METHOD_OPTIONS)
 
@@ -214,7 +211,7 @@ option = st.selectbox("SELECT INPUT METHOD", INPUT_METHOD_OPTIONS)
 initialize_database()
 
 # Main logic for different input methods
-if option == "Link":
+if option == "LINK":
     st.header("SCRAPE REVIEWS FROM AMAZON")
     url_input = st.text_input("ENTER AMAZON REVIEW URL:")
     pages_input = st.number_input("PAGES TO SCRAPE:", 1, 50, 1)
@@ -223,7 +220,7 @@ if option == "Link":
         if url_input:
             scraped_reviews = scrape_reviews(url_input, pages_input)
             df_reviews = pd.DataFrame(scraped_reviews)
-            st.write("### SCRAPED REVIEWS")
+            st.write("### SCRAPED REVIEWS", unsafe_allow_html=True)
             st.write(df_reviews)
 
             df_reviews['Processed_Description'] = df_reviews['Description'].apply(preprocess_text)
@@ -234,30 +231,30 @@ if option == "Link":
                 insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
 
             # Displaying sentiment distribution
-            st.write("### SENTIMENT DISTRIBUTION")
+            st.write("### SENTIMENT DISTRIBUTION", unsafe_allow_html=True)
             fig, ax = plt.subplots()
             sns.countplot(x='Sentiment', data=df_reviews, palette='Reds_r')
-            plt.title('Sentiment Count')
+            plt.title('SENTIMENT COUNT')
             st.pyplot(fig)
 
             # Generating insights
             insights = generate_insights(df_reviews)
-            st.write("### INSIGHTS")
+            st.write("### INSIGHTS", unsafe_allow_html=True)
             for key, value in insights.items():
                 st.write(f"**{key}:** {value}")
 
-            st.write("### DETAILED DATA")
+            st.write("### DETAILED DATA", unsafe_allow_html=True)
             st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Description']])
         else:
             st.error("**PLEASE PROVIDE A VALID URL.**")
 
-elif option == "Dataset":
+elif option == "DATASET":
     st.header("UPLOAD DATASET")
     uploaded_file = st.file_uploader("CHOOSE A CSV FILE", type="csv")
 
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
-        st.write("### UPLOADED DATA")
+        st.write("### UPLOADED DATA", unsafe_allow_html=True)
         st.write(data)
 
         data['Processed_Description'] = data['Description'].apply(preprocess_text)
@@ -267,23 +264,23 @@ elif option == "Dataset":
         for _, row in data.iterrows():
             insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
 
-        st.write("### SENTIMENT DISTRIBUTION")
+        st.write("### SENTIMENT DISTRIBUTION", unsafe_allow_html=True)
         fig, ax = plt.subplots()
         sns.countplot(x='Sentiment', data=data, palette='Reds_r')
-        plt.title('Sentiment Count')
+        plt.title('SENTIMENT COUNT')
         st.pyplot(fig)
 
         # Generating insights
         insights = generate_insights(data)
-        st.write("### INSIGHTS")
+        st.write("### INSIGHTS", unsafe_allow_html=True)
         for key, value in insights.items():
             st.write(f"**{key}:** {value}")
 
         # Train models
-        st.write("### TRAIN MODELS")
+        st.write("### TRAIN MODELS", unsafe_allow_html=True)
         train_models(data)
 
-elif option == "Text":
+elif option == "TEXT":
     st.header("ANALYZE CUSTOM TEXT")
     user_input_text = st.text_area("ENTER TEXT:")
 
@@ -296,7 +293,7 @@ elif option == "Text":
         st.write(f"**SENTIMENT:** {sentiment_result}")
         st.write(f"**POLARITY SCORE:** {polarity_score:.2f}")
 
-elif option == "Retrieve Old Reviews":
+elif option == "RETRIEVE OLD REVIEWS":
     st.header("SEARCH OLD REVIEWS")
     search_name = st.text_input("ENTER NAME TO SEARCH:")
 
@@ -305,26 +302,26 @@ elif option == "Retrieve Old Reviews":
             reviews = fetch_reviews_by_name(search_name)
             if reviews:
                 df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-                st.write("### RETRIEVED REVIEWS")
+                st.write("### RETRIEVED REVIEWS", unsafe_allow_html=True)
                 st.write(df_reviews)
             else:
                 st.warning("**NO REVIEWS FOUND.**")
         else:
             st.error("**PLEASE ENTER A NAME.**")
 
-elif option == "Clear Database":
+elif option == "CLEAR DATABASE":
     st.header("CLEAR ALL REVIEWS")
     if st.button("CONFIRM CLEAR"):
         clear_database()
         st.success("**ALL REVIEWS HAVE BEEN CLEARED.**")
 
-elif option == "Show All Saved Reviews":
+elif option == "SHOW ALL SAVED REVIEWS":
     st.header("VIEW ALL SAVED REVIEWS")
     if st.button("SHOW REVIEWS"):
         reviews = fetch_all_reviews()
         if reviews:
             df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-            st.write("### ALL REVIEWS")
+            st.write("### ALL REVIEWS", unsafe_allow_html=True)
             st.write(df_reviews)
         else:
             st.warning("**NO REVIEWS FOUND.**")
