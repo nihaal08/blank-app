@@ -26,21 +26,7 @@ nltk.download('punkt')
 nltk.download('wordnet')
 nltk.download('stopwords')
 
-# Initialize stopwords
-STOPWORDS = set(stopwords.words('english'))
-
-st.title("SENTIMENT ANALYSIS DASHBOARD")
-st.markdown("-----------Analyze product reviews to gain insights!----------")
-INPUT_METHOD_OPTIONS = (
-    "Link",
-    "Dataset",
-    "Text",
-    "Retrieve Old Reviews",
-    "Show All Saved Reviews",
-    "Clear Database"
-)
-option = st.selectbox("Select Input Method", INPUT_METHOD_OPTIONS)
-
+# Function to initialize the database
 def initialize_database():
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -56,8 +42,7 @@ def initialize_database():
     conn.commit()
     conn.close()
 
-initialize_database()
-
+# Function to insert review into the database
 def insert_review(name, rating, description, sentiment):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -68,6 +53,7 @@ def insert_review(name, rating, description, sentiment):
     conn.commit()
     conn.close()
 
+# Function to fetch all saved reviews
 def fetch_all_reviews():
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -76,6 +62,7 @@ def fetch_all_reviews():
     conn.close()
     return data
 
+# Function to fetch reviews by name
 def fetch_reviews_by_name(name):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -84,6 +71,7 @@ def fetch_reviews_by_name(name):
     conn.close()
     return data
 
+# Function to clear the database
 def clear_database():
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
@@ -91,6 +79,7 @@ def clear_database():
     conn.commit()
     conn.close()
 
+# Function to get request headers
 def get_request_headers():
     return {
         'authority': 'www.amazon.com',
@@ -98,11 +87,13 @@ def get_request_headers():
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'
     }
 
+# Function to scrape reviews from the given URL
 def scrape_reviews(url, pages):
     reviews = []
     for page_number in range(1, pages + 1):
-        response = requests.get(url, headers=get_request_headers())
-        if response.status_code == 200:
+        try:
+            response = requests.get(url, headers=get_request_headers())
+            response.raise_for_status()  # Raise an exception for HTTP error codes
             soup = BeautifulSoup(response.text, 'lxml')
             boxes = soup.select('div[data-hook="review"]')
             for box in boxes:
@@ -112,14 +103,19 @@ def scrape_reviews(url, pages):
                     'Title': box.select_one('[data-hook="review-title"]').text if box.select_one('[data-hook="review-title"]') else 'N/A',
                     'Description': box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
                 })
-        else:
-            st.write(f"**Error:** Page {page_number} failed: {response.status_code}")
+        except requests.HTTPError as e:
+            st.error(f"HTTP error occurred: {e}")
+            break
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
             break
     return reviews
 
+# Initialize NLTK tools
 STOPWORDS = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 
+# Function to preprocess text
 def preprocess_text(text):
     text = emoji.demojize(text)
     text = re.sub(r'[^a-zA-Z\s]', ' ', text)
@@ -127,16 +123,13 @@ def preprocess_text(text):
     cleaned_tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in STOPWORDS]
     return ' '.join(cleaned_tokens)
 
+# Function to analyze sentiment using TextBlob
 def analyze_sentiment(text):
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
-    if polarity > 0:
-        return 'Positive'
-    elif polarity < 0:
-        return 'Negative'
-    else:
-        return 'Neutral'
+    return 'Positive' if polarity > 0 else 'Negative' if polarity < 0 else 'Neutral'
 
+# Function to train the sentiment analysis models
 def train_models(data):
     X = data['Processed_Description']
     y = data['Sentiment'].apply(lambda x: 1 if x == 'Positive' else 0)
@@ -168,7 +161,7 @@ def train_models(data):
 
     df_metrics = pd.DataFrame(metrics, columns=['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score'])
 
-    st.write("### Model Performance")
+    st.write("### MODEL PERFORMANCE", unsafe_allow_html=True)
     st.write(df_metrics)
 
     fig, ax = plt.subplots()
@@ -176,131 +169,144 @@ def train_models(data):
     plt.title('Model Accuracy Comparison')
     st.pyplot(fig)
 
-    return models
-
+# Function to generate insights from the data
 def generate_insights(data):
-    positive_reviews = data[data['Sentiment'] == 'Positive']
-    negative_reviews = data[data['Sentiment'] == 'Negative']
-
-    insights = []
-
-    if len(positive_reviews) > 0:
-        insights.append(f"{len(positive_reviews)} positive reviews found.")
-
-    if len(negative_reviews) > 0:
-        insights.append(f"{len(negative_reviews)} negative reviews found.")
-
-    if not insights:
-        insights.append("No insights available.")
-
+    insights = {
+        "Total Reviews": len(data),
+        "Positive Reviews": len(data[data['Sentiment'] == 'Positive']),
+        "Negative Reviews": len(data[data['Sentiment'] == 'Negative']),
+        "Neutral Reviews": len(data[data['Sentiment'] == 'Neutral']),
+    }
     return insights
 
-# Processing User Inputs
-if option == "Link":
-    st.header("Scrape Reviews from Amazon")
-    url_input = st.text_input("Enter Amazon Review URL:")
-    pages_input = st.number_input("Pages to Scrape:", 1, 50, 1) 
+# Streamlit UI configuration
+st.title("SENTIMENT ANALYSIS DASHBOARD")
+st.markdown("<h2 style='text-align: center;'>ANALYZE PRODUCT REVIEWS TO GAIN INSIGHTS</h2>", unsafe_allow_html=True)
+INPUT_METHOD_OPTIONS = (
+    "Link",
+    "Dataset",
+    "Text",
+    "Retrieve Old Reviews",
+    "Show All Saved Reviews",
+    "Clear Database"
+)
+option = st.selectbox("SELECT INPUT METHOD", INPUT_METHOD_OPTIONS)
 
-    if st.button("Scrape Reviews"):
+# Initialize the database
+initialize_database()
+
+# Main logic for different input methods
+if option == "Link":
+    st.header("SCRAPE REVIEWS FROM AMAZON")
+    url_input = st.text_input("ENTER AMAZON REVIEW URL:")
+    pages_input = st.number_input("PAGES TO SCRAPE:", 1, 50, 1)
+
+    if st.button("SCRAPE REVIEWS"):
         if url_input:
             scraped_reviews = scrape_reviews(url_input, pages_input)
             df_reviews = pd.DataFrame(scraped_reviews)
-            st.write("### Scraped Reviews")
+            st.write("### SCRAPED REVIEWS")
             st.write(df_reviews)
 
             df_reviews['Processed_Description'] = df_reviews['Description'].apply(preprocess_text)
             df_reviews['Sentiment'] = df_reviews['Processed_Description'].apply(analyze_sentiment)
 
+            # Insert reviews into the database
             for _, row in df_reviews.iterrows():
                 insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
-            
-            st.write("### Sentiment Distribution")
+
+            # Displaying sentiment distribution
+            st.write("### SENTIMENT DISTRIBUTION")
             fig, ax = plt.subplots()
             sns.countplot(x='Sentiment', data=df_reviews, palette='Reds_r')
             plt.title('Sentiment Count')
             st.pyplot(fig)
 
+            # Generating insights
             insights = generate_insights(df_reviews)
-            st.write("### Insights")
-            for insight in insights:
-                st.write(insight)
+            st.write("### INSIGHTS")
+            for key, value in insights.items():
+                st.write(f"**{key}:** {value}")
 
-            st.write("### Detailed Data")
+            st.write("### DETAILED DATA")
             st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Description']])
         else:
-            st.write("**Please provide a valid URL.**")
+            st.error("**PLEASE PROVIDE A VALID URL.**")
 
 elif option == "Dataset":
-    st.header("Upload Dataset")
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-    
+    st.header("UPLOAD DATASET")
+    uploaded_file = st.file_uploader("CHOOSE A CSV FILE", type="csv")
+
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
-        st.write("### Uploaded Data")
+        st.write("### UPLOADED DATA")
         st.write(data)
 
         data['Processed_Description'] = data['Description'].apply(preprocess_text)
         data['Sentiment'] = data['Processed_Description'].apply(analyze_sentiment)
 
+        # Insert reviews into the database
         for _, row in data.iterrows():
             insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
 
-        st.write("### Sentiment Distribution")
+        st.write("### SENTIMENT DISTRIBUTION")
         fig, ax = plt.subplots()
         sns.countplot(x='Sentiment', data=data, palette='Reds_r')
         plt.title('Sentiment Count')
         st.pyplot(fig)
 
+        # Generating insights
         insights = generate_insights(data)
-        st.write("### Insights")
-        for insight in insights:
-            st.write(insight)
+        st.write("### INSIGHTS")
+        for key, value in insights.items():
+            st.write(f"**{key}:** {value}")
 
-        st.write("### Train Models")
+        # Train models
+        st.write("### TRAIN MODELS")
         train_models(data)
 
 elif option == "Text":
-    st.header("Analyze Custom Text")
-    user_input_text = st.text_area("Enter text:")
+    st.header("ANALYZE CUSTOM TEXT")
+    user_input_text = st.text_area("ENTER TEXT:")
 
-    if st.button("Analyze Text"):
+    if st.button("ANALYZE TEXT"):
         processed_text = preprocess_text(user_input_text)
         sentiment_result = analyze_sentiment(processed_text)
         blob = TextBlob(processed_text)
         polarity_score = blob.sentiment.polarity
-        
-        st.write(f"**Sentiment:** {sentiment_result}")
-        st.write(f"**Polarity Score:** {polarity_score:.2f}")
-        
-elif option == "Retrieve Old Reviews":
-    st.header("Search Old Reviews")
-    search_name = st.text_input("Enter Name to Search:")
 
-    if st.button("Fetch Reviews"):
+        st.write(f"**SENTIMENT:** {sentiment_result}")
+        st.write(f"**POLARITY SCORE:** {polarity_score:.2f}")
+
+elif option == "Retrieve Old Reviews":
+    st.header("SEARCH OLD REVIEWS")
+    search_name = st.text_input("ENTER NAME TO SEARCH:")
+
+    if st.button("FETCH REVIEWS"):
         if search_name:
             reviews = fetch_reviews_by_name(search_name)
             if reviews:
                 df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-                st.write("### Retrieved Reviews")
+                st.write("### RETRIEVED REVIEWS")
                 st.write(df_reviews)
             else:
-                st.write("**No reviews found.**")
+                st.warning("**NO REVIEWS FOUND.**")
         else:
-            st.write("**Please enter a name.**")
+            st.error("**PLEASE ENTER A NAME.**")
 
 elif option == "Clear Database":
-    st.header("Clear All Reviews")
-    if st.button("Confirm Clear"):
+    st.header("CLEAR ALL REVIEWS")
+    if st.button("CONFIRM CLEAR"):
         clear_database()
-        st.success("**All reviews have been cleared.**")
+        st.success("**ALL REVIEWS HAVE BEEN CLEARED.**")
 
 elif option == "Show All Saved Reviews":
-    st.header("View All Saved Reviews")
-    if st.button("Show Reviews"):
+    st.header("VIEW ALL SAVED REVIEWS")
+    if st.button("SHOW REVIEWS"):
         reviews = fetch_all_reviews()
         if reviews:
             df_reviews = pd.DataFrame(reviews, columns=["ID", "Name", "Rating", "Description", "Sentiment"])
-            st.write("### All Reviews")
+            st.write("### ALL REVIEWS")
             st.write(df_reviews)
         else:
-            st.write("**No reviews found.**")
+            st.warning("**NO REVIEWS FOUND.**")
