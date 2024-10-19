@@ -28,8 +28,8 @@ nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
 
 # Streamlit UI setup
-st.title("SENTIMENT ANALYSIS DASHBOARD")
-st.markdown("<h3 style='text-align: center;'>ANALYZE THE REVIEWS TO GAIN INSIGHTS ABOUT THE PRODUCT!</h3>", unsafe_allow_html=True)
+st.title("<h1 style='text-align: center;'>SENTIMENT ANALYSIS DASHBOARD </h1>")
+st.markdown("ANALYZE THE REVIEWS TO GAIN INSIGHTS ABOUT THE PRODUCT!", unsafe_allow_html=True)
 
 # Input method options
 INPUT_METHOD_OPTIONS = (
