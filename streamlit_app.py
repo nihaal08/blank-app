@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
 nltk.download('stopwords')
-nltk.download('punkt_tab')
 from nltk.corpus import punkt_tab
 from nltk.corpus import stopwords
 STOPWORDS = set(stopwords.words('english'))
