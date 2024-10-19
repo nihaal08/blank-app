@@ -19,6 +19,13 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
+import nltk
+
+# Download NLTK components
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('wordnet', quiet=True)
+
 st.title("SENTIMENT ANALYSIS DASHBOARD")
 st.markdown("-----------Analyze product reviews to gain insights!----------")
 INPUT_METHOD_OPTIONS = (
