@@ -22,9 +22,11 @@ import sqlite3
 import nltk
 
 # Download NLTK components
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
+nltk.download('punkt', quiet=True)
+nltk.download('punkt_tab', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('wordnet', quiet=True)
+
 
 st.title("SENTIMENT ANALYSIS DASHBOARD")
 st.markdown("-----------Analyze product reviews to gain insights!----------")
