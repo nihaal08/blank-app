@@ -9,3 +9,4 @@ textblob
 scikit-learn
 matplotlib
 seaborn
+wordcloud
