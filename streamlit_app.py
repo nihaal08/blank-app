@@ -8,7 +8,7 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from textblob import TextBlob
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -20,10 +20,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import sqlite3
 import nltk
+from wordcloud import WordCloud
 
 # Download NLTK components
 nltk.download('punkt', quiet=True)
-nltk.download('punkt_tab', quiet=True)
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
 
@@ -94,7 +94,7 @@ def clear_database():
     conn.commit()
     conn.close()
 
-# Web scraping
+# Web scraping with URL validation
 def get_request_headers():
     return {
         'authority': 'www.amazon.com',
@@ -102,23 +102,37 @@ def get_request_headers():
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'
     }
 
+def is_valid_url(url):
+    regex = re.compile(
+        r'^(?:http|https)://'  # http:// or https://
+        r'(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}|localhost|'  # domain...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
+        r'\[?[a-fA-F0-9]*:[a-fA-F0-9:]+\]?)'  # ...or ipv6
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$'
+    )
+    return re.match(regex, url) is not None
+
 def scrape_reviews(url, pages):
     reviews = []
     for page_number in range(1, pages + 1):
-        response = requests.get(url, headers=get_request_headers())
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'lxml')
-            boxes = soup.select('div[data-hook="review"]')
-            for box in boxes:
-                reviews.append({
-                    'Name': box.select_one('[class="a-profile-name"]').text if box.select_one('[class="a-profile-name"]') else 'N/A',
-                    'Rating': box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] if box.select_one('[data-hook="review-star-rating"]') else 'N/A',
-                    'Title': box.select_one('[data-hook="review-title"]').text if box.select_one('[data-hook="review-title"]') else 'N/A',
-                    'Description': box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
-                })
-        else:
-            st.write(f"**Error:** Page {page_number} failed: {response.status_code}")
-            break
+        try:
+            response = requests.get(url, headers=get_request_headers())
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'lxml')
+                boxes = soup.select('div[data-hook="review"]')
+                for box in boxes:
+                    reviews.append({
+                        'Name': box.select_one('[class="a-profile-name"]').text if box.select_one('[class="a-profile-name"]') else 'N/A',
+                        'Rating': box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] if box.select_one('[data-hook="review-star-rating"]') else 'N/A',
+                        'Title': box.select_one('[data-hook="review-title"]').text if box.select_one('[data-hook="review-title"]') else 'N/A',
+                        'Description': box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
+                    })
+            else:
+                st.write(f"**Error:** Page {page_number} failed: {response.status_code}")
+                break
+        except Exception as e:
+            st.write(f"**Error:** {e}")
     return reviews
 
 # Text processing
@@ -127,6 +141,7 @@ lemmatizer = WordNetLemmatizer()
 
 def preprocess_text(text):
     text = emoji.demojize(text)
+    text = re.sub(r'\s+', ' ', text)  # Remove redundant spaces
     text = re.sub(r'[^a-zA-Z\s]', ' ', text)
     tokens = word_tokenize(text.lower())
     cleaned_tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in STOPWORDS]
@@ -159,19 +174,39 @@ def train_models(data):
         'Naive Bayes': MultinomialNB()
     }
 
-    metrics = []
-    for model_name, model in models.items():
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+    selected_model_name = st.selectbox("Select a model to train:", list(models.keys()))
+    selected_model = models[selected_model_name]
+    
+    # Hyperparameter tuning example for Logistic Regression
+    if selected_model_name == 'Logistic Regression':
+        param_grid = {'C': [0.1, 1, 10], 'solver': ['liblinear', 'saga']}
+    elif selected_model_name == 'Random Forest':
+        param_grid = {'n_estimators': [10, 50, 100], 'max_depth': [None, 10, 20]}
+    elif selected_model_name == 'SVM':
+        param_grid = {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}
+    elif selected_model_name == 'KNN':
+        param_grid = {'n_neighbors': [3, 5, 7], 'weights': ['uniform', 'distance']}
+    elif selected_model_name == 'Naive Bayes':
+        param_grid = {}
 
-        accuracy = accuracy_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred)
-        recall = recall_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred)
+    grid_search = GridSearchCV(selected_model, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+    grid_search.fit(X_train, y_train)
 
-        metrics.append((model_name, accuracy, precision, recall, f1))
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test)
 
-    df_metrics = pd.DataFrame(metrics, columns=['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score'])
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
+
+    df_metrics = pd.DataFrame({
+        'Model': [selected_model_name],
+        'Accuracy': [accuracy],
+        'Precision': [precision],
+        'Recall': [recall],
+        'F1 Score': [f1]
+    })
 
     st.write("### MODEL PERFORMANCE")
     st.write(df_metrics)
@@ -181,7 +216,18 @@ def train_models(data):
     plt.title('Model Accuracy Comparison')
     st.pyplot(fig)
 
-    return models
+    # Word Clouds for Sentiment Analysis
+    sentiment_groups = data.groupby('Sentiment')['Processed_Description'].apply(lambda x: ' '.join(x)).reset_index()
+    
+    for sentiment in sentiment_groups['Sentiment']:
+        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(sentiment_groups[sentiment_groups['Sentiment'] == sentiment]['Processed_Description'].values[0])
+        plt.figure(figsize=(10, 5))
+        plt.imshow(wordcloud, interpolation='bilinear')
+        plt.axis('off')
+        plt.title(f'Word Cloud for {sentiment} Reviews')
+        st.pyplot(plt)
+
+    return best_model
 
 def generate_insights(data):
     positive_reviews = data[data['Sentiment'] == 'Positive']
@@ -207,7 +253,7 @@ if option == "Link":
     pages_input = st.number_input("Pages to Scrape:", 1, 50, 1)
 
     if st.button("SCRAPE REVIEWS"):
-        if url_input:
+        if is_valid_url(url_input):
             scraped_reviews = scrape_reviews(url_input, pages_input)
             df_reviews = pd.DataFrame(scraped_reviews)
             st.write("### SCRAPED REVIEWS")
@@ -225,7 +271,6 @@ if option == "Link":
             plt.title('Sentiment Count')
             st.pyplot(fig)
 
-            # Insights section moved to the end
             insights = generate_insights(df_reviews)
             st.write("### INSIGHTS")
             for insight in insights:
@@ -234,7 +279,7 @@ if option == "Link":
             st.write("### DETAILED DATA")
             st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Description']])
         else:
-            st.write("**Please provide a valid URL.**")
+            st.write("**Please provide a valid Amazon URL.**")
 
 elif option == "Dataset":
     st.header("UPLOAD DATASET")
@@ -257,7 +302,6 @@ elif option == "Dataset":
         plt.title('Sentiment Count')
         st.pyplot(fig)
 
-        # Insights section moved to the end
         insights = generate_insights(data)
         st.write("### INSIGHTS")
         for insight in insights:
