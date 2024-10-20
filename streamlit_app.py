@@ -61,15 +61,24 @@ def initialize_database():
 initialize_database()
 
 # Database operations
-def insert_review(name, rating, description, sentiment):
+def review_exists(name, description):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO reviews (name, rating, description, sentiment) 
-        VALUES (?, ?, ?, ?)
-    ''', (name, rating, description, sentiment))
-    conn.commit()
+    cursor.execute('SELECT COUNT(*) FROM reviews WHERE name = ? AND description = ?', (name, description))
+    exists = cursor.fetchone()[0] > 0
     conn.close()
+    return exists
+
+def insert_review(name, rating, description, sentiment):
+    if not review_exists(name, description):  # Check if the review already exists
+        conn = sqlite3.connect('sentiment_analysis.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO reviews (name, rating, description, sentiment) 
+            VALUES (?, ?, ?, ?)
+        ''', (name, rating, description, sentiment))
+        conn.commit()
+        conn.close()
 
 def fetch_all_reviews():
     conn = sqlite3.connect('sentiment_analysis.db')
@@ -82,7 +91,7 @@ def fetch_all_reviews():
 def fetch_reviews_by_name(name):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM reviews WHERE name LIKE ?', (f'%{name}%',))
+    cursor.execute('SELECT DISTINCT * FROM reviews WHERE name LIKE ?', (f'%{name}%',))  # Use DISTINCT to avoid duplicates
     data = cursor.fetchall()
     conn.close()
     return data
