@@ -11,15 +11,10 @@ from textblob import TextBlob
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import matplotlib.pyplot as plt
-import seaborn as sns
 import sqlite3
 import nltk
+import matplotlib.pyplot as plt
+import seaborn as sns
 from wordcloud import WordCloud
 
 # Download NLTK components
@@ -61,16 +56,17 @@ def initialize_database():
 initialize_database()
 
 # Database operations
-def review_exists(name, description):
+def is_unique_review(name, rating, description):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM reviews WHERE name = ? AND description = ?', (name, description))
+    cursor.execute('SELECT COUNT(*) FROM reviews WHERE name = ? AND rating = ? AND description = ?', 
+                   (name, rating, description))
     exists = cursor.fetchone()[0] > 0
     conn.close()
-    return exists
+    return not exists  # Return True if it's unique, False if it exists
 
 def insert_review(name, rating, description, sentiment):
-    if not review_exists(name, description):  # Check if the review already exists
+    if is_unique_review(name, rating, description):  # Check if the review is unique
         conn = sqlite3.connect('sentiment_analysis.db')
         cursor = conn.cursor()
         cursor.execute('''
@@ -91,7 +87,7 @@ def fetch_all_reviews():
 def fetch_reviews_by_name(name):
     conn = sqlite3.connect('sentiment_analysis.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT * FROM reviews WHERE name LIKE ?', (f'%{name}%',))  # Use DISTINCT to avoid duplicates
+    cursor.execute('SELECT DISTINCT * FROM reviews WHERE name LIKE ?', (f'%{name}%',))
     data = cursor.fetchall()
     conn.close()
     return data
@@ -131,11 +127,17 @@ def scrape_reviews(url, pages):
                 soup = BeautifulSoup(response.text, 'lxml')
                 boxes = soup.select('div[data-hook="review"]')
                 for box in boxes:
+                    name = box.select_one('[class="a-profile-name"]').text if box.select_one('[class="a-profile-name"]') else 'N/A'
+                    rating = box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] if box.select_one('[data-hook="review-star-rating"]') else 'N/A'
+                    description = box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
+                    
+                    # Normalize data (e.g., remove extra spaces)
+                    normalized_description = ' '.join(description.split()).lower()
+                    
                     reviews.append({
-                        'Name': box.select_one('[class="a-profile-name"]').text if box.select_one('[class="a-profile-name"]') else 'N/A',
-                        'Rating': box.select_one('[data-hook="review-star-rating"]').text.split(' out')[0] if box.select_one('[data-hook="review-star-rating"]') else 'N/A',
-                        'Title': box.select_one('[data-hook="review-title"]').text if box.select_one('[data-hook="review-title"]') else 'N/A',
-                        'Description': box.select_one('[data-hook="review-body"]').text.strip() if box.select_one('[data-hook="review-body"]') else 'N/A'
+                        'Name': name,
+                        'Rating': rating,
+                        'Description': normalized_description
                     })
             else:
                 st.write(f"**Error:** Page {page_number} failed: {response.status_code}")
@@ -145,9 +147,6 @@ def scrape_reviews(url, pages):
     return reviews
 
 # Text processing
-STOPWORDS = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-
 def preprocess_text(text):
     text = emoji.demojize(text)
     text = re.sub(r'\s+', ' ', text)  # Remove redundant spaces
@@ -163,81 +162,6 @@ def analyze_sentiment(text):
         return 'Negative'
     else:
         return 'Neutral'
-
-def train_models(data):
-    X = data['Processed_Description']
-    y = data['Sentiment'].apply(lambda x: 1 if x == 'Positive' else 0)
-
-    tfidf_vectorizer = TfidfVectorizer()
-    X_tfidf = tfidf_vectorizer.fit_transform(X)
-
-    X_train, X_test, y_train, y_test = train_test_split(X_tfidf, y, test_size=0.2, random_state=42)
-
-    models = {
-        'Logistic Regression': LogisticRegression(),
-        'Random Forest': RandomForestClassifier(),
-        'SVM': SVC(),
-        'KNN': KNeighborsClassifier(),
-        'Naive Bayes': MultinomialNB()
-    }
-
-    selected_model_name = st.selectbox("Select a model to train:", list(models.keys()))
-    selected_model = models[selected_model_name]
-    
-    # Hyperparameter tuning setup (example)
-    param_grid = {}
-    if selected_model_name == 'Logistic Regression':
-        param_grid = {'C': [0.1, 1, 10], 'solver': ['liblinear', 'saga']}
-    elif selected_model_name == 'Random Forest':
-        param_grid = {'n_estimators': [10, 50, 100], 'max_depth': [None, 10, 20]}
-    elif selected_model_name == 'SVM':
-        param_grid = {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}
-    elif selected_model_name == 'KNN':
-        param_grid = {'n_neighbors': [3, 5, 7], 'weights': ['uniform', 'distance']}
-    
-    if param_grid:  # Only fit if there are parameters to tune
-        grid_search = GridSearchCV(selected_model, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-        grid_search.fit(X_train, y_train)
-        best_model = grid_search.best_estimator_
-    else:
-        best_model = selected_model
-        best_model.fit(X_train, y_train)
-
-    y_pred = best_model.predict(X_test)
-
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
-
-    df_metrics = pd.DataFrame({
-        'Model': [selected_model_name],
-        'Accuracy': [accuracy],
-        'Precision': [precision],
-        'Recall': [recall],
-        'F1 Score': [f1]
-    })
-
-    st.write("### MODEL PERFORMANCE")
-    st.write(df_metrics)
-
-    # Word Clouds for Sentiment Analysis
-    st.write("### Word Clouds for Sentiment Analysis")
-    sentiment_groups = data.groupby('Sentiment')['Processed_Description'].apply(lambda x: ' '.join(x)).reset_index()
-    
-    cols = st.columns(len(sentiment_groups))  # Create columns for multiple word clouds
-
-    for i, sentiment in enumerate(sentiment_groups['Sentiment']):
-        wordcloud = WordCloud(width=400, height=200, background_color='white').generate(sentiment_groups[sentiment_groups['Sentiment'] == sentiment]['Processed_Description'].values[0])
-        
-        with cols[i]:
-            plt.figure(figsize=(5, 3))
-            plt.imshow(wordcloud, interpolation='bilinear')
-            plt.axis('off')
-            plt.title(f'{sentiment} Reviews')
-            st.pyplot(plt)
-
-    return best_model
 
 def generate_insights(data):
     positive_reviews = data[data['Sentiment'] == 'Positive']
@@ -265,15 +189,17 @@ if option == "Link":
     if st.button("SCRAPE REVIEWS"):
         if is_valid_url(url_input):
             scraped_reviews = scrape_reviews(url_input, pages_input)
+            for review in scraped_reviews:
+                insert_review(review['Name'], review['Rating'], review['Description'], 'N/A')  # Replace 'N/A' with sentiment analysis as needed
+
+            # Displaying results
             df_reviews = pd.DataFrame(scraped_reviews)
             st.write("### SCRAPED REVIEWS")
             st.write(df_reviews)
 
+            # Analyze sentiment and save it to the DataFrame
             df_reviews['Processed_Description'] = df_reviews['Description'].apply(preprocess_text)
             df_reviews['Sentiment'] = df_reviews['Processed_Description'].apply(analyze_sentiment)
-
-            for _, row in df_reviews.iterrows():
-                insert_review(row['Name'], row['Rating'], row['Description'], row['Sentiment'])
 
             st.write("### SENTIMENT DISTRIBUTION")
             fig, ax = plt.subplots()
@@ -286,15 +212,13 @@ if option == "Link":
             for insight in insights:
                 st.write(insight)
 
-            st.write("### DETAILED DATA")
-            st.write(df_reviews[['Name', 'Rating', 'Sentiment', 'Description']])
         else:
             st.write("**Please provide a valid Amazon URL.**")
 
 elif option == "Dataset":
     st.header("UPLOAD DATASET")
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-    
+
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
         st.write("### UPLOADED DATA")
@@ -317,9 +241,6 @@ elif option == "Dataset":
         for insight in insights:
             st.write(insight)
 
-        st.write("### TRAIN MODELS")
-        train_models(data)
-
 elif option == "Text":
     st.header("ANALYZE CUSTOM TEXT")
     user_input_text = st.text_area("Enter text:")
@@ -332,7 +253,7 @@ elif option == "Text":
         
         st.write(f"**Sentiment:** {sentiment_result}")
         st.write(f"**Polarity Score:** {polarity_score:.2f}")
-        
+
 elif option == "Retrieve Old Reviews":
     st.header("SEARCH OLD REVIEWS")
     search_name = st.text_input("Enter Name to Search:")
