@@ -143,9 +143,7 @@ def preprocess_text(text):
     text = emoji.demojize(text)
     text = re.sub(r'\s+', ' ', text)  # Remove redundant spaces
     text = re.sub(r'[^a-zA-Z\s]', ' ', text)
-    tokens = word_tokenize(text.lower())
-    cleaned_tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in STOPWORDS]
-    return ' '.join(cleaned_tokens)
+    return text.strip()
 
 def analyze_sentiment(text):
     blob = TextBlob(text)
@@ -177,7 +175,8 @@ def train_models(data):
     selected_model_name = st.selectbox("Select a model to train:", list(models.keys()))
     selected_model = models[selected_model_name]
     
-    # Hyperparameter tuning example for Logistic Regression
+    # Hyperparameter tuning setup (example)
+    param_grid = {}
     if selected_model_name == 'Logistic Regression':
         param_grid = {'C': [0.1, 1, 10], 'solver': ['liblinear', 'saga']}
     elif selected_model_name == 'Random Forest':
@@ -186,13 +185,15 @@ def train_models(data):
         param_grid = {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}
     elif selected_model_name == 'KNN':
         param_grid = {'n_neighbors': [3, 5, 7], 'weights': ['uniform', 'distance']}
-    elif selected_model_name == 'Naive Bayes':
-        param_grid = {}
+    
+    if param_grid:  # Only fit if there are parameters to tune
+        grid_search = GridSearchCV(selected_model, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+        grid_search.fit(X_train, y_train)
+        best_model = grid_search.best_estimator_
+    else:
+        best_model = selected_model
+        best_model.fit(X_train, y_train)
 
-    grid_search = GridSearchCV(selected_model, param_grid, cv=5, scoring='accuracy', n_jobs=-1)
-    grid_search.fit(X_train, y_train)
-
-    best_model = grid_search.best_estimator_
     y_pred = best_model.predict(X_test)
 
     accuracy = accuracy_score(y_test, y_pred)
@@ -211,21 +212,21 @@ def train_models(data):
     st.write("### MODEL PERFORMANCE")
     st.write(df_metrics)
 
-    fig, ax = plt.subplots()
-    sns.barplot(x='Accuracy', y='Model', data=df_metrics, ax=ax, palette="Reds_r")
-    plt.title('Model Accuracy Comparison')
-    st.pyplot(fig)
-
     # Word Clouds for Sentiment Analysis
+    st.write("### Word Clouds for Sentiment Analysis")
     sentiment_groups = data.groupby('Sentiment')['Processed_Description'].apply(lambda x: ' '.join(x)).reset_index()
     
-    for sentiment in sentiment_groups['Sentiment']:
-        wordcloud = WordCloud(width=800, height=400, background_color='white').generate(sentiment_groups[sentiment_groups['Sentiment'] == sentiment]['Processed_Description'].values[0])
-        plt.figure(figsize=(10, 5))
-        plt.imshow(wordcloud, interpolation='bilinear')
-        plt.axis('off')
-        plt.title(f'Word Cloud for {sentiment} Reviews')
-        st.pyplot(plt)
+    cols = st.columns(len(sentiment_groups))  # Create columns for multiple word clouds
+
+    for i, sentiment in enumerate(sentiment_groups['Sentiment']):
+        wordcloud = WordCloud(width=400, height=200, background_color='white').generate(sentiment_groups[sentiment_groups['Sentiment'] == sentiment]['Processed_Description'].values[0])
+        
+        with cols[i]:
+            plt.figure(figsize=(5, 3))
+            plt.imshow(wordcloud, interpolation='bilinear')
+            plt.axis('off')
+            plt.title(f'{sentiment} Reviews')
+            st.pyplot(plt)
 
     return best_model
 
